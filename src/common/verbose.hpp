@@ -1,6 +1,6 @@
 /*******************************************************************************
 * Copyright 2018-2025 Intel Corporation
-* Copyright 2023 Arm Ltd. and affiliates
+* Copyright 2023, 2025 Arm Ltd. and affiliates
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -382,6 +382,7 @@ std::string md2fmt_str(
         const char *name, const memory_desc_t *md, format_kind_t user_format);
 std::string md2dim_str(
         const memory_desc_t *md, dims_type_t dims_type = dims_type_t::dims);
+std::string md2fmt_tag_str(const memory_desc_t *md);
 std::string arg2str(int arg);
 // Returns a verbose string of dimensions or descriptor from src, wei, and/or
 // dst memory descs. Can be called externally to provide info about actual
