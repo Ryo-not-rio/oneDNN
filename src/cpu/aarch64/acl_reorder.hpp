@@ -24,23 +24,36 @@
 
 namespace {
     int do_transpose(const dnnl::impl::memory_desc_t* src_md,const dnnl::impl::memory_desc_t* dst_md) {
-        auto src_md_ = dnnl::impl::md2fmt_tag_str(src_md);
-        auto dst_md_ = dnnl::impl::md2fmt_tag_str(dst_md);
+        if (src_md->ndims != 4 && src_md->ndims != 2) return -1;
+        if (src_md->ndims == 4) {
+            if (memory_desc_matches_tag(*src_md, dnnl::impl::format_tag::cdba) && 
+                (memory_desc_matches_tag(*dst_md, dnnl::impl::format_tag::Acdb4a)
+                || memory_desc_matches_tag(*dst_md, dnnl::impl::format_tag::Acdb8a))) {
+                    return 1;
+                };
+                return -1;
+        }
 
-        bool equal = true;
+        uint32_t blk_mult = 1;
+        for (int i = 0; i < dst_md->format_desc.blocking.inner_nblks; i++) {
+            blk_mult *= dst_md->format_desc.blocking.inner_blks[i];
+        }
+
+        int src_dense_idx = -1;
         for (int i = 0; i < src_md->ndims; i++) {
-            equal &= tolower(src_md_[i]) == tolower(dst_md_[i]);
+            if (src_md->format_desc.blocking.strides[i] == 1)
+                src_dense_idx = i;
         }
-        if (equal) return 0;
+        if (src_dense_idx == -1) return -1;
 
-        equal = true;
-        for (int i = 0; i < src_md->ndims - 1; i++) {
-            equal &= tolower(src_md_[i]) == tolower(dst_md_[i + 1]);
+        int dst_dense_idx = -1;
+        for (int i = 0; i < dst_md->ndims; i++) {
+            if (dst_md->format_desc.blocking.strides[i] == blk_mult)
+                dst_dense_idx = i;
         }
-        equal &= tolower(src_md_[src_md->ndims - 1]) == tolower(dst_md_[0]);
-        if (equal) return 1;
-
-        return -1;
+        if (dst_dense_idx == -1) return -1;
+        
+        return src_dense_idx != dst_dense_idx;
     }
 }
 
@@ -108,7 +121,6 @@ struct acl_reorder_fwd_t : public primitive_t {
                 const primitive_attr_t *attr, engine_t *src_engine,
                 const memory_desc_t *src_md, engine_t *dst_engine,
                 const memory_desc_t *dst_md) {
-
             using namespace acl_utils;
 
             // ACL reorder support f32->f32 and f32->bf16
@@ -152,10 +164,19 @@ struct acl_reorder_fwd_t : public primitive_t {
             ACL_CHECK_SUPPORT(dst_md->format_desc.blocking.inner_nblks > 2, "destination format not supported");
             
             _pd->app_.dst_wf = arm_compute::WeightFormat::OHWI;
-            if (dst_md->format_desc.blocking.inner_nblks >= 1)
-                _pd->app_.dst_wf = (arm_compute::WeightFormat) ((long int) _pd->app_.dst_wf + 0x000100 * (dst_md->format_desc.blocking.inner_blks[0] - 1));
-            if (dst_md->format_desc.blocking.inner_nblks >= 2)
-                _pd->app_.dst_wf = (arm_compute::WeightFormat) ((long int) _pd->app_.dst_wf + 0x100000 * (dst_md->format_desc.blocking.inner_blks[1] - 1));
+            for (int i = 0; i < dst_md->format_desc.blocking.inner_nblks; i++) {
+                auto idx = dst_md->format_desc.blocking.inner_idxs[i];
+                auto blk = dst_md->format_desc.blocking.inner_blks[i];
+                if (idx == 0) {
+                    // Set interleave_by
+                    _pd->app_.dst_wf = (arm_compute::WeightFormat) ((long int) _pd->app_.dst_wf + 0x000100 * (blk - 1));
+                } else if (idx == 1) {
+                    // Set block_by
+                    _pd->app_.dst_wf = (arm_compute::WeightFormat) ((long int) _pd->app_.dst_wf + 0x100000 * (blk - 1));
+                } else {
+                    return status::unimplemented;
+                }
+            }
 
             arm_compute::TensorShape acl_tensor_shape_in;
             arm_compute::TensorShape acl_tensor_shape_out;
