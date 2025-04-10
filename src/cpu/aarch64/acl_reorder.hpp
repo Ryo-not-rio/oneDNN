@@ -174,13 +174,14 @@ struct acl_reorder_fwd_t : public primitive_t {
                 auto idx = dst_blocking.inner_idxs[i];
                 auto blk = dst_blocking.inner_blks[i];
                 if (idx == 0) {
-                    // Set interleave_by
+                    auto offset = dst_blocking.inner_nblks == 1 ? interleave_offset : block_by_offset;
                     dst_wf = (arm_compute::WeightFormat)(
-                            (long int)dst_wf + interleave_offset * (blk - 1));
+                            (long int)dst_wf + offset * (blk - 1));
                 } else if (idx == 1) {
+                    auto offset = dst_blocking.inner_nblks == 1 ? block_by_offset : interleave_offset;
                     // Set block_by
                     dst_wf = (arm_compute::WeightFormat)(
-                            (long int)dst_wf + block_by_offset * (blk - 1));
+                            (long int)dst_wf + offset * (blk - 1));
                 } else {
                     return status::unimplemented;
                 }
